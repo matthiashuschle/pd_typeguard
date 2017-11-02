@@ -1,7 +1,6 @@
 from unittest import TestCase
-# from unittest.mock import Mock
-from ..decorators import ReturnValueDecorator, NonEmpty, HasColumn
-from ..exceptions import DFEmptyError, MissingColumnError
+from ..decorators import ReturnValueDecorator, NotEmpty, HasColumn, ColumnHasDtype, ColumnNotNull
+from ..exceptions import DFEmptyError, MissingColumnError, WrongDtypeError, ColumnNullError
 import pandas as pd
 
 
@@ -36,7 +35,7 @@ class TestNonEmpty(TestCase):
 
     def test_decorator_default(self):
 
-        @NonEmpty()
+        @NotEmpty()
         def mirror(value):
             return value
 
@@ -49,7 +48,7 @@ class TestNonEmpty(TestCase):
 
     def test_decorator_accept_none(self):
 
-        @NonEmpty(allow_none=True)
+        @NotEmpty(allow_none=True)
         def mirror(value):
             return value
 
@@ -62,7 +61,7 @@ class TestNonEmpty(TestCase):
 
     def test_decorator_refuse_scalar(self):
 
-        @NonEmpty(allow_scalar=False)
+        @NotEmpty(allow_scalar=False)
         def mirror(value):
             return value
 
@@ -74,7 +73,7 @@ class TestNonEmpty(TestCase):
         self.assertIsNotNone(mirror(pd.DataFrame({'a': [1]})))
         
     def test_validate_default(self):
-        validate = NonEmpty().validate
+        validate = NotEmpty().validate
         self.assertRaises(DFEmptyError, validate, None)
         self.assertRaises(DFEmptyError, validate, [])
         self.assertRaises(DFEmptyError, validate, pd.DataFrame())
@@ -91,16 +90,23 @@ class TestHasColumn(TestCase):
         def mirror(value):
             return value
 
-        self.assertRaises(MissingColumnError, mirror, None)
-        self.assertRaises(MissingColumnError, mirror, [])
-        self.assertRaises(MissingColumnError, mirror, {})
+        self.assertRaises(DFEmptyError, mirror, None)
+        self.assertRaises(AttributeError, mirror, [])
+        self.assertRaises(AttributeError, mirror, {})
         self.assertRaises(MissingColumnError, mirror, pd.DataFrame())
-        self.assertRaises(MissingColumnError, mirror, 1)
-        self.assertRaises(MissingColumnError, mirror, [1])
-        self.assertRaises(MissingColumnError, mirror, {1})
+        self.assertRaises(AttributeError, mirror, 1)
+        self.assertRaises(AttributeError, mirror, [1])
+        self.assertRaises(AttributeError, mirror, {1})
         self.assertIsNotNone(mirror(pd.DataFrame({'a': [1]})))
 
         @HasColumn(['c', 'a', 'd'])
+        def mirror(value):
+            return value
+
+        self.assertRaises(DFEmptyError, mirror, pd.DataFrame(columns=['a', 'b', 'c', 'd']))
+        self.assertRaises(MissingColumnError, mirror, pd.DataFrame(columns=['a', 'b', 'd']))
+
+        @HasColumn(['c', 'a', 'd'], allow_empty=True)
         def mirror(value):
             return value
 
@@ -109,14 +115,85 @@ class TestHasColumn(TestCase):
 
     def test_validate_default(self):
         validate = HasColumn(['a']).validate
-        self.assertRaises(MissingColumnError, validate, None)
-        self.assertRaises(MissingColumnError, validate, [])
-        self.assertRaises(MissingColumnError, validate, {})
+        self.assertRaises(DFEmptyError, validate, None)
         self.assertRaises(MissingColumnError, validate, pd.DataFrame())
-        self.assertRaises(MissingColumnError, validate, 1)
-        self.assertRaises(MissingColumnError, validate, [1])
-        self.assertRaises(MissingColumnError, validate, {1})
         self.assertIsNotNone(validate(pd.DataFrame({'a': [1]})))
         validate = HasColumn(['c', 'a', 'd']).validate
+        self.assertRaises(DFEmptyError, validate, pd.DataFrame(columns=['a', 'b', 'c', 'd']))
+        self.assertRaises(MissingColumnError, validate, pd.DataFrame(columns=['a', 'b', 'd']))
+        validate = HasColumn(['c', 'a', 'd'], allow_empty=True).validate
         self.assertIsNotNone(validate(pd.DataFrame(columns=['a', 'b', 'c', 'd'])))
         self.assertRaises(MissingColumnError, validate, pd.DataFrame(columns=['a', 'b', 'd']))
+        validate = HasColumn(['a'], allow_none=True).validate
+        self.assertIsNone(validate(None))
+        validate = HasColumn(['c', 'a', 'd'], allow_none=True, allow_empty=True).validate
+        self.assertIsNotNone(validate(pd.DataFrame(columns=['a', 'b', 'c', 'd'])))
+        self.assertRaises(MissingColumnError, validate, pd.DataFrame(columns=['a', 'b', 'd']))
+        self.assertIsNone(validate(None))
+
+
+class TestColumnHasDtype(TestCase):
+
+    def test_validate_default(self):
+        validate = ColumnHasDtype({}).validate
+        self.assertRaises(DFEmptyError, validate, None)
+        validate = ColumnHasDtype({}, allow_none=True).validate
+        self.assertEqual(validate(None), None)
+        validate = ColumnHasDtype({'intcol': 'int64'}).validate
+        self.assertRaises(DFEmptyError, validate, None)
+        df_valid = pd.DataFrame({'moo': ['a', 'b'], 'intcol': [1, 2]})
+        self.assertIs(df_valid, validate(df_valid))
+        df_invalid = pd.DataFrame({'intcol': ['a', 'b'], 'moo': [1, 2]})
+        self.assertRaises(WrongDtypeError, validate, df_invalid)
+        validate = ColumnHasDtype({'intcol': 'int64'}, allow_none=True).validate
+        self.assertEqual(validate(None), None)
+        self.assertIs(df_valid, validate(df_valid))
+        self.assertRaises(WrongDtypeError, validate, df_invalid)
+        validate = ColumnHasDtype({'intcol': 'int64', 'moo': 'object'}).validate
+        self.assertRaises(DFEmptyError, validate, None)
+        self.assertIs(df_valid, validate(df_valid))
+        self.assertRaises(WrongDtypeError, validate, df_invalid)
+
+
+class TestColumnNotNull(TestCase):
+
+    def test_validate_default(self):
+        validate = ColumnNotNull({}).validate
+        self.assertRaises(DFEmptyError, validate, None)
+
+        validate = ColumnNotNull({}, allow_none=True).validate
+        self.assertEqual(validate(None), None)
+        del validate
+
+        df_a_all = pd.DataFrame({'a': [1, 2], 'b': [None, None]})
+        df_a_any = pd.DataFrame({'a': [1, None], 'b': [None, None]})
+        df_a_null = pd.DataFrame({'a': [None, None], 'b': [None, None]})
+        df_empty = df_a_null.head(0)
+        validate_any = ColumnNotNull({'a': 'any'}).validate
+        validate_all = ColumnNotNull({'a': 'all'}).validate
+        self.assertRaises(DFEmptyError, validate_any, None)
+        self.assertRaises(MissingColumnError, validate_any, pd.DataFrame())
+        self.assertRaises(DFEmptyError, validate_any, df_empty)
+        self.assertRaises(DFEmptyError, validate_all, None)
+        self.assertRaises(MissingColumnError, validate_all, pd.DataFrame())
+        self.assertRaises(DFEmptyError, validate_all, df_empty)
+        self.assertIs(df_a_all, validate_any(df_a_all))
+        self.assertIs(df_a_all, validate_all(df_a_all))
+        self.assertIs(df_a_any, validate_any(df_a_any))
+        self.assertRaises(ColumnNullError, validate_all, df_a_any)
+        self.assertRaises(ColumnNullError, validate_any, df_a_null)
+        self.assertRaises(ColumnNullError, validate_all, df_a_null)
+
+        validate_any = ColumnNotNull({'a': 'any'}, allow_empty=True).validate
+        validate_all = ColumnNotNull({'a': 'all'}, allow_empty=True).validate
+        self.assertRaises(DFEmptyError, validate_any, None)
+        self.assertRaises(DFEmptyError, validate_all, None)
+        self.assertRaises(MissingColumnError, validate_any, pd.DataFrame())
+        self.assertRaises(MissingColumnError, validate_all, pd.DataFrame())
+        self.assertIs(df_empty, validate_any(df_empty))
+        self.assertIs(df_a_all, validate_any(df_a_all))
+        self.assertIs(df_a_all, validate_all(df_a_all))
+        self.assertIs(df_a_any, validate_any(df_a_any))
+        self.assertRaises(ColumnNullError, validate_all, df_a_any)
+        self.assertRaises(ColumnNullError, validate_any, df_a_null)
+        self.assertRaises(ColumnNullError, validate_all, df_a_null)
