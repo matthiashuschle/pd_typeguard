@@ -1,5 +1,6 @@
 from abc import ABCMeta, abstractmethod
-from .exceptions import DFEmptyError, MissingColumnError, WrongDtypeError, ColumnNullError
+from .exceptions import (DFEmptyError, MissingColumnError, WrongDtypeError, ColumnNullError,
+                         ColumnNotUniqueError, ColumnNotSingleValueError)
 
 
 class ReturnValueDecorator(metaclass=ABCMeta):
@@ -96,7 +97,7 @@ class ColumnHasDtype(HasColumn):
         :param bool allow_empty: allow a DataFrame of length zero, if it has the required columns
         """
         super(ColumnHasDtype, self).__init__([x for x in dtypes], allow_none=allow_none, allow_empty=allow_empty)
-        self.dtypes = {x: y for x, y in dtypes.items()}  # typecheck on creation
+        self.dtypes = {x: y for x, y in dtypes.items()}  # type check on creation
 
     def _validate_details(self, value, is_empty):
         wrong_dtypes = []
@@ -120,7 +121,7 @@ class ColumnNotNull(HasColumn):
         :param bool allow_empty: allow a DataFrame of length zero, if it has the required columns
         """
         super(ColumnNotNull, self).__init__([x for x in col_notnull], allow_none=allow_none, allow_empty=allow_empty)
-        self.notnull = {x: y for x, y in col_notnull.items()}  # typecheck on creation
+        self.notnull = {x: y for x, y in col_notnull.items()}  # type check on creation
 
     def _validate_details(self, value, is_empty):
         if is_empty:
@@ -141,3 +142,26 @@ class ColumnNotNull(HasColumn):
                                   ', '.join('%s: %i (not null expected: %s)' % (
                                       column, null_per_column.loc[column], self.notnull[column]
                                   ) for column in wrong_content))
+
+
+class ColumnUnique(HasColumn):
+
+    def _validate_details(self, value, is_empty):
+        if is_empty:
+            return
+        for col in self.columns:
+            duplicates = value[col].duplicated()
+            if duplicates.any():
+                raise ColumnNotUniqueError(
+                    'Column %s is not unique! First duplicate item: %r' % (col, value[col][duplicates].iloc[0]))
+
+
+class ColumnSingleValue(HasColumn):
+
+    def _validate_details(self, value, is_empty):
+        if is_empty:
+            return
+        for col in self.columns:
+            if value[col].nunique() > 1:
+                raise ColumnNotSingleValueError(
+                    'Column %s has multiple values! First two values: %r' % (col, value[col].unique()[:2]))

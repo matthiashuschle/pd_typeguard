@@ -1,6 +1,9 @@
 from unittest import TestCase
-from ..decorators import ReturnValueDecorator, NotEmpty, HasColumn, ColumnHasDtype, ColumnNotNull
-from ..exceptions import DFEmptyError, MissingColumnError, WrongDtypeError, ColumnNullError
+from ..decorators import (ReturnValueDecorator, NotEmpty, HasColumn, ColumnHasDtype,
+                          ColumnNotNull, ColumnUnique, ColumnSingleValue)
+from ..exceptions import (DFEmptyError, MissingColumnError, WrongDtypeError, ColumnNullError,
+                          ColumnNotUniqueError, ColumnNotSingleValueError)
+
 import pandas as pd
 
 
@@ -197,3 +200,43 @@ class TestColumnNotNull(TestCase):
         self.assertRaises(ColumnNullError, validate_all, df_a_any)
         self.assertRaises(ColumnNullError, validate_any, df_a_null)
         self.assertRaises(ColumnNullError, validate_all, df_a_null)
+
+
+class TestColumnUnique(TestCase):
+
+    def test_validate_default(self):
+        validate = ColumnUnique({}).validate
+        self.assertRaises(DFEmptyError, validate, None)
+
+        validate = ColumnUnique({}, allow_none=True).validate
+        self.assertEqual(validate(None), None)
+
+    def test_validate_simple(self):
+        df_valid = pd.DataFrame({'a': [1, 2], 'b': ['x', 'y'], 'c': ['z', 'z']})
+        validate = ColumnUnique(['a', 'b']).validate
+        self.assertIs(df_valid, validate(df_valid))
+        validate = ColumnUnique(['a', 'c']).validate
+        self.assertRaises(ColumnNotUniqueError, validate, df_valid)
+        validate = ColumnUnique(['c']).validate
+        self.assertRaises(ColumnNotUniqueError, validate, df_valid)
+
+
+class TestColumnSingleValue(TestCase):
+
+    def test_validate_default(self):
+        validate = ColumnSingleValue({}).validate
+        self.assertRaises(DFEmptyError, validate, None)
+
+        validate = ColumnSingleValue({}, allow_none=True).validate
+        self.assertEqual(validate(None), None)
+
+    def test_validate_simple(self):
+        df_valid = pd.DataFrame({'a': [1, 2], 'b': ['x', 'x'], 'c': ['z', 'z']})
+        validate = ColumnSingleValue(['a']).validate
+        self.assertRaises(ColumnNotSingleValueError, validate, df_valid)
+        validate = ColumnSingleValue(['a', 'c']).validate
+        self.assertRaises(ColumnNotSingleValueError, validate, df_valid)
+        validate = ColumnSingleValue(['c']).validate
+        self.assertIs(df_valid, validate(df_valid))
+        validate = ColumnSingleValue(['b', 'c']).validate
+        self.assertIs(df_valid, validate(df_valid))

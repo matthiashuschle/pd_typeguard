@@ -21,3 +21,13 @@ class WrongDtypeError(ReturnValueError):
 class ColumnNullError(ReturnValueError):
     """ A column is unexpectedly empty. """
     pass
+
+
+class ColumnNotUniqueError(ReturnValueError):
+    """ A column is unexpectedly not unique. """
+    pass
+
+
+class ColumnNotSingleValueError(ReturnValueError):
+    """ A column contains more than one distinct values. """
+    pass
